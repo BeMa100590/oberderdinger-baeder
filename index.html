@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Oberderdinger Bäder - alles zum Baden!</title>
   <meta name="theme-color" content="#0a5b72" />
-  <link rel="stylesheet" href="style.css?v=8" />
-  <script defer src="app.js?v=8"></script>
+  <link rel="stylesheet" href="style.css?v=9" />
+  <script defer src="app.js?v=10"></script>
 </head>
 <body>
   <header class="header">
@@ -43,6 +43,18 @@
       <img src="assets/uvindex-modal.png" alt="UV-Index Erklärung" class="modal-img" />
     </div>
   </div>
+
+  <!-- History (7 Tage Durchschnitt) Modal -->
+<div class="modal" id="history-modal" aria-hidden="true" role="dialog" aria-label="Letzte 7 Tage">
+  <div class="modal-backdrop" data-close="hist"></div>
+  <div class="modal-dialog" role="document" tabindex="-1">
+    <button class="modal-close" data-close="hist" aria-label="Schließen">×</button>
+    <div class="modal-body">
+      <h3 id="history-title" class="hist-title"></h3>
+      <ul id="history-list" class="hist-list"></ul>
+    </div>
+  </div>
+</div>
 
   <footer class="footer">
     <p>© 2025 Stadt Oberderdingen</p>
