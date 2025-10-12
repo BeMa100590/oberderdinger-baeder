@@ -231,22 +231,16 @@ async function showHistory(poolKey, tileKey){
 function openUvModal(){ const m=document.getElementById('uv-modal'); if(!m) return; m.classList.add('show'); const d=m.querySelector('.modal-dialog'); if(d) d.focus(); }
 function closeUvModal(){ const m=document.getElementById('uv-modal'); if(!m) return; m.classList.remove('show'); }
 
-// Global click handling
+// Global click handling (bubbling)
 document.addEventListener('click', (e)=>{
   // Close modals
   if(e.target.closest('[data-close="uv"]'))   { closeUvModal(); return; }
   if(e.target.closest('[data-close="hist"]')) { closeHistoryModal(); return; }
 
-  // History: click on value area
-  const val = e.target.closest('.value[data-click="val"]');
-  if(val){
-    const art = val.closest('article.thumb'); if(!art) return;
-    const m = art.id.match(/^(filple|natur)-tile-(\w+)$/);
-    if(m){ showHistory(m[1], m[2]); }
-    return;
-  }
+  // If value area was clicked, capture handler already handled it; do nothing
+  if(e.target.closest('.value[data-click="val"]')) return;
 
-  // UV modal: click tile (but not value area due to early return above)
+  // UV modal: click tile (but not value area)
   const art = e.target.closest('article.thumb');
   if(art && /-tile-uv$/.test(art.id)){ openUvModal(); return; }
 });
@@ -259,3 +253,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   refreshAll();
   setInterval(refreshAll, 5*60*1000);
 });
+
+/* Ensure value-click opens history even if other listeners exist */
+function onValueClickCapture(e){
+  const val = e.target.closest('.value[data-click="val"]');
+  if(!val) return;
+  e.stopPropagation();
+  if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+  const art = val.closest('article.thumb'); if(!art) return;
+  const m = art.id.match(/^(filple|natur)-tile-(\w+)$/);
+  if(m){ showHistory(m[1], m[2]); }
+}
+document.addEventListener('click', onValueClickCapture, true); // capture phase
