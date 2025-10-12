@@ -107,6 +107,3 @@ h2{margin:.2rem 0 .6rem; font-size:clamp(1.2rem,4.4vw,1.6rem)}
 }
 .hist-list .d{ opacity:.95 }
 .hist-list .v{ font-weight:800 }
-
-/* Clickable values */
-.value[data-click="val"]{ cursor:pointer; }
