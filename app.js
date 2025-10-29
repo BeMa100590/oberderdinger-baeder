@@ -1,1 +1,50 @@
-<!doctype html> <html lang="de"> <head> <meta charset="utf-8" /> <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" /> <title>Oberderdingen - Alles zum Baden!</title> <meta name="theme-color" content="#0a5b72" /> <link rel="stylesheet" href="style.css?v=9" /> <script defer src="app.js?v=9"></script> </head> <body> <header class="header"> <h1>Oberderdingen - Alles zum Baden!</h1> </header> <section class="pool" data-pool="filple" style="--hero-image: url('assets/hero-natur.jpg'); --accent:#7a8d4a;"> <div class="hero"></div> <div class="content"> <div class="title-row"> <h2>FilpleBad Oberderdingen</h2> <p class="updated" id="filple-updated"></p> </div> <div class="thumb-grid" id="filple-grid"></div> </div> </section> <section class="pool" data-pool="natur" style="--hero-image: url('assets/hero-filple.jpg'); --accent:#0a5b72;"> <div class="hero"></div> <div class="content"> <div class="title-row"> <h2>NaturErlebnisBad Flehingen</h2> <p class="updated" id="natur-updated"></p> </div> <div class="thumb-grid" id="natur-grid"></div> </div> </section> <!-- UV-Index Modal --> <div class="modal" id="uv-modal" aria-hidden="true" role="dialog" aria-label="UV-Index Erklärung"> <div class="modal-backdrop" data-close="uv"></div> <div class="modal-dialog" role="document" tabindex="-1"> <button class="modal-close" data-close="uv" aria-label="Schließen">×</button> <img src="assets/uvindex-modal.png" alt="UV-Index Erklärung" class="modal-img" /> </div> </div> <!-- History (7 Tage Durchschnitt) Modal --> <div class="modal" id="history-modal" aria-hidden="true" role="dialog" aria-label="Letzte 7 Tage"> <div class="modal-backdrop" data-close="hist"></div> <div class="modal-dialog" role="document" tabindex="-1"> <button class="modal-close" data-close="hist" aria-label="Schließen">×</button> <div class="modal-body"> <h3 id="history-title" class="hist-title"></h3> <ul id="history-list" class="hist-list"></ul> </div> </div> </div> <footer class="footer"> <p>© 2025 Stadt Oberderdingen</p> </footer> </body> </html>
+/* app.js – Minimal & design-sicher
+   - Keine Historie
+   - Greift NICHT in deine Kachel-HTML ein
+   - Setzt nur die "Zuletzt aktualisiert" Texte pro Pool
+*/
+
+const LOCALE = "de-DE";
+
+const elFilpleUpd = document.getElementById("filple-updated");
+const elNaturUpd  = document.getElementById("natur-updated");
+
+// ---- HILFSFUNKTIONEN ----
+function formatUpdated(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const date = d.toLocaleDateString(LOCALE, { day:"2-digit", month:"2-digit", year:"numeric" });
+  const time = d.toLocaleTimeString(LOCALE, { hour:"2-digit", minute:"2-digit" });
+  return `Zuletzt aktualisiert: ${date}, ${time} Uhr`;
+}
+
+// ---- DATENBESCHAFFUNG (DEMO ODER ECHT) ----
+// ⚠️ Ersetze diesen Demo-Provider durch deinen echten Fetch,
+// aber gib in jedem Fall ein Objekt mit { updatedAt } zurück.
+const DataProvider = {
+  async fetch(pool) {
+    // DEMO: nur Zeitstempel liefern, NICHTS an Grids verändern
+    return { updatedAt: new Date().toISOString() };
+  }
+};
+
+// ---- RENDER: nur Updated-Text setzen ----
+function renderUpdated(el, updatedAt) {
+  if (el) el.textContent = formatUpdated(updatedAt);
+}
+
+// ---- BOOTSTRAP ----
+async function init() {
+  try {
+    const filple = await DataProvider.fetch("filple");
+    const natur  = await DataProvider.fetch("natur");
+    renderUpdated(elFilpleUpd, filple.updatedAt);
+    renderUpdated(elNaturUpd,  natur.updatedAt);
+  } catch (e) {
+    console.error(e);
+    if (elFilpleUpd) elFilpleUpd.textContent = "Fehler beim Laden der Daten.";
+    if (elNaturUpd)  elNaturUpd.textContent  = "Fehler beim Laden der Daten.";
+  }
+}
+
+document.addEventListener("DOMContentLoaded", init);
