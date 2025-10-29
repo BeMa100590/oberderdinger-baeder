@@ -1,222 +1,311 @@
-/* Config + logic (rebuilt trimmed) */
-const CONFIG = {
-  filple: {
-    channelId: 3089969,
-    readApiKey: "G93FDQPXIJ75KSOR",
-    tiles: [
-      { key:'swim', name:'Schwimmerbecken',     field: 1, unit:'°C' },
-      { key:'kids', name:'Kinderplanschbecken', field: 2, unit:'°C' },
-      { key:'out',  name:'Außentemperatur',     field: 1, unit:'°C', channelId: 3094234, readApiKey: "OZU6XCJ29SCQTLQT" },
-      { key:'uv',   name:'UV-Index',            field: 5, unit:'',   channelId: 3043993, readApiKey: "5QKSO8HZ6BNPFTDE" }
-    ]
-  },
-  natur: {
-    channelId: 3089969,
-    readApiKey: "G93FDQPXIJ75KSOR",
-    tiles: [
-      { key:'swim', name:'Schwimmerbecken',     field: 3, unit:'°C' },
-      { key:'kids', name:'Kinderplanschbecken', field: 3, unit:'°C' },
-      { key:'out',  name:'Außentemperatur',     field: 2, unit:'°C', channelId: 3094234, readApiKey: "OZU6XCJ29SCQTLQT" },
-      { key:'uv',   name:'UV-Index',            field: 5, unit:'',   channelId: 3043993, readApiKey: "5QKSO8HZ6BNPFTDE" }
-    ]
+/* app.js – Komplett
+   Oberderdingen – Alles zum Baden!
+   ------------------------------------------------------------
+   Features
+   - Rendert Kacheln für Temperaturen & UV (FilpleBad, NaturErlebnisBad)
+   - Klick auf Kachel => Modal zeigt Tagesdurchschnitte (letzte 7 Tage)
+   - "Zuletzt aktualisiert" pro Bad
+   - Einfach auf echte API-Daten umstellbar (siehe DataProvider.fetch)
+   ------------------------------------------------------------ */
+
+/** =========================
+ *  KONFIG
+ *  ========================= */
+const DAYS_HISTORY = 7;              // 7 / 14 / 28 – beliebig anpassen
+const USE_UV_MAX_FOR_DAILY = false;  // true => UV Tages-Max statt Durchschnitt
+const LOCALE = "de-DE";
+
+/** =========================
+ *  DOM-Hooks
+ *  ========================= */
+const elFilpleGrid = document.getElementById("filple-grid");
+const elNaturGrid  = document.getElementById("natur-grid");
+const elFilpleUpd  = document.getElementById("filple-updated");
+const elNaturUpd   = document.getElementById("natur-updated");
+
+const historyModal = document.getElementById("history-modal");
+const historyTitle = document.getElementById("history-title");
+const historyList  = document.getElementById("history-list");
+
+/** =========================
+ *  SENSOR-SPEICHER
+ *  =========================
+ * Key => Zeitreihe [{ts, value}]
+ * Keys werden an Kacheln als data-key referenziert.
+ */
+window.SENSOR_SERIES = window.SENSOR_SERIES || {};
+
+/** =========================
+ *  DATA PROVIDER
+ *  =========================
+ * Stelle hier auf deine echte API um (fetch/axios etc.).
+ */
+const DataProvider = {
+  // Beispiel: auf echte Endpunkte umstellen
+  // async fetch(pool) {
+  //   const res = await fetch(`/api/${pool}`);
+  //   return await res.json();
+  // },
+
+  // Demo-Daten: deterministisch generiert, damit die App out-of-the-box funktioniert
+  async fetch(pool) {
+    // generiert Zeitreihen der letzten 30 Tage im 2h-Raster
+    const now = new Date();
+    const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const series = (base, swing) => {
+      const out = [];
+      for (let t = new Date(start); t <= now; t = new Date(t.getTime() + 2*60*60*1000)) {
+        const dailyPhase = Math.sin((t.getHours()/24) * Math.PI * 2);
+        const noise = Math.sin((t.getTime()/3.6e6) * 1.7) * 0.3;
+        out.push({ ts: t.toISOString(), value: base + swing * dailyPhase + noise });
+      }
+      return out;
+    };
+
+    // Pools: frei benennbar – wichtig sind die Keys
+    const data = {
+      updatedAt: now.toISOString(),
+      tiles: [
+        // Temperaturen
+        {
+          key: `${pool}:becken1:temp`,
+          label: pool === "filple" ? "Filple – Becken 1" : "Natur – Schwimmerbecken",
+          type: "temp",
+          unit: "°C",
+          series: series(pool === "filple" ? 23.5 : 21.8, 1.2)
+        },
+        {
+          key: `${pool}:becken2:temp`,
+          label: pool === "filple" ? "Filple – Kinderbecken" : "Natur – Nichtschwimmer",
+          type: "temp",
+          unit: "°C",
+          series: series(pool === "filple" ? 26.0 : 22.6, 1.0)
+        },
+        // Optionale Lufttemperatur-Kachel
+        {
+          key: `${pool}:luft:temp`,
+          label: pool === "filple" ? "Filple – Luft" : "Natur – Luft",
+          type: "temp",
+          unit: "°C",
+          series: series(19.5, 4.5)
+        },
+        // UV-Index (zwei Quellen/Positionen)
+        {
+          key: `${pool}:uv:außen`,
+          label: pool === "filple" ? "Filple – UV außen" : "Natur – UV außen",
+          type: "uv",
+          unit: "",
+          series: series(3.0, 2.2).map(p => ({...p, value: Math.max(0, Math.min(11, p.value))}))
+        },
+        {
+          key: `${pool}:uv:innen`,
+          label: pool === "filple" ? "Filple – UV innen" : "Natur – UV innen",
+          type: "uv",
+          unit: "",
+          series: series(1.2, 0.8).map(p => ({...p, value: Math.max(0, Math.min(6, p.value))}))
+        },
+      ]
+    };
+
+    return data;
   }
 };
 
-const nf1 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
-const el = (s,c=document)=>c.querySelector(s);
+/** =========================
+ *  UTIL
+ *  ========================= */
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-function parseValue(raw){
-  if(raw == null) return NaN;
-  const s = String(raw).trim().replace(',', '.').replace(/[^0-9.+\-eE]/g, '');
-  const v = Number(s);
-  return Number.isFinite(v) ? v : NaN;
+function toLocalISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
-const dfDay = new Intl.DateTimeFormat('de-DE', { weekday:'short' });
-const dfDate = new Intl.DateTimeFormat('de-DE', { day:'2-digit', month:'2-digit', year:'numeric' });
-function lastNDates(n){
-  const out = [];
+function groupByLocalDay(points) {
+  const byDay = new Map();
+  for (const p of points) {
+    const d = new Date(p.ts);
+    const key = toLocalISODate(d);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(p.value);
+  }
+  return byDay;
+}
+
+/**
+ * Tagesaggregation für letzte N Tage.
+ * mode: "avg" | "max"
+ */
+function computeDaily(series, daysBack = 7, mode = "avg") {
+  if (!Array.isArray(series)) return [];
   const now = new Date();
-  for(let i=0;i<n;i++){
-    const d = new Date(now); d.setDate(now.getDate()-i);
-    // normalize to local start of day
-    d.setHours(0,0,0,0);
-    out.push(new Date(d));
+  const start = new Date(now.getTime() - (daysBack - 1) * DAY_MS);
+  start.setHours(0,0,0,0);
+
+  const filtered = series.filter(p => new Date(p.ts) >= start);
+  const byDay = groupByLocalDay(filtered);
+  const keys = [...byDay.keys()].sort((a, b) => b.localeCompare(a));
+
+  const agg = (arr) => {
+    if (!arr || !arr.length) return null;
+    if (mode === "max") return Math.max(...arr);
+    const s = arr.reduce((x, y) => x + y, 0);
+    return s / arr.length;
+  };
+
+  return keys.map(k => ({ date: k, value: agg(byDay.get(k)) }));
+}
+
+function formatValue(val, unit) {
+  if (val == null || Number.isNaN(val)) return "–";
+  const digits = unit === "°C" ? 1 : 2;
+  return `${val.toFixed(digits)}${unit ? " " + unit : ""}`;
+}
+
+function formatUpdated(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const date = d.toLocaleDateString(LOCALE, { day:"2-digit", month:"2-digit", year:"numeric" });
+  const time = d.toLocaleTimeString(LOCALE, { hour:"2-digit", minute:"2-digit" });
+  return `Zuletzt aktualisiert: ${date}, ${time} Uhr`;
+}
+
+/** =========================
+ *  MODAL
+ *  ========================= */
+function openHistoryModal({ title, items, unit }) {
+  historyTitle.textContent = title || "Historie";
+  historyList.innerHTML = "";
+
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.textContent = "Keine Messwerte im gewählten Zeitraum.";
+    historyList.appendChild(li);
+  } else {
+    for (const entry of items) {
+      const d = new Date(entry.date + "T00:00:00");
+      const dateLabel = d.toLocaleDateString(LOCALE, {
+        weekday: "short", day: "2-digit", month: "2-digit"
+      });
+      const li = document.createElement("li");
+      li.textContent = `${dateLabel}: ${formatValue(entry.value, unit)}`;
+      historyList.appendChild(li);
+    }
   }
-  return out;
-}
-async function fetchDailyAverages(channelId, readApiKey, field, days=7){
-  const url = new URL(`https://api.thingspeak.com/channels/${channelId}/fields/${field}.json`);
-  url.searchParams.set('days', String(days));
-  url.searchParams.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin');
-  if(readApiKey) url.searchParams.set('api_key', readApiKey);
-  const res = await fetch(url.toString());
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const data = await res.json();
-  const feeds = data.feeds || [];
-  // group by local YYYY-MM-DD
-  const bucket = new Map();
-  for(const f of feeds){
-    const v = parseValue(f[`field${field}`]);
-    if(Number.isNaN(v)) continue;
-    const dt = new Date(f.created_at);
-    const local = new Date(dt.getTime());
-    const key = local.getFullYear()+"-"+String(local.getMonth()+1).padStart(2,'0')+"-"+String(local.getDate()).padStart(2,'0');
-    const b = bucket.get(key) || { sum:0, n:0, date:local };
-    b.sum += v; b.n += 1; bucket.set(key, b);
-  }
-  // build last N days list (today first)
-  const daysList = lastNDates(days);
-  return daysList.map(d => {
-    const key = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0')+"-"+String(d.getDate()).padStart(2,'0');
-    const b = bucket.get(key);
-    const avg = b && b.n>0 ? (b.sum / b.n) : null;
-    return { date:d, avg };
-  });
-}
-function openHistoryModal(){
-  const m = document.getElementById('history-modal'); if(!m) return;
-  m.classList.add('show');
-  const d = m.querySelector('.modal-dialog'); if(d) d.focus();
-}
-function closeHistoryModal(){
-  const m = document.getElementById('history-modal'); if(!m) return;
-  m.classList.remove('show');
-}
-async function showHistory(poolKey, tileKey){
-  // find tile config
-  const cfg = CONFIG[poolKey];
-  if(!cfg) return;
-  const t = cfg.tiles.find(x=>x.key===tileKey);
-  if(!t) return;
-  const channelId = t.channelId ?? cfg.channelId;
-  const readKey   = t.readApiKey ?? cfg.readApiKey;
-  if(!t.field){ return; }
-  // fetch averages
-  let items = [];
-  try{
-    items = await fetchDailyAverages(channelId, readKey, t.field, 7);
-  }catch(e){
-    // fallback: show empty list
-    items = lastNDates(7).map(d=>({date:d, avg:null}));
-  }
-  // render
-  const title = document.getElementById('history-title');
-  const list  = document.getElementById('history-list');
-  if(title) title.textContent = (poolKey==='filple' ? 'FilpleBad Oberderdingen – ' : 'NaturErlebnisBad Flehingen – ') + t.name;
-  if(list){
-    list.innerHTML = items.map(it => {
-      const left = `${dfDay.format(it.date)} · ${dfDate.format(it.date)}`;
-      const right = (it.avg==null) ? '–' : nf1.format(it.avg) + (t.unit||'');
-      return `<li><span class="d">${left}</span><span class="v">${right}</span></li>`;
-    }).join('');
-  }
-  openHistoryModal();
+
+  historyModal.setAttribute("aria-hidden", "false");
+  const dlg = historyModal.querySelector(".modal-dialog");
+  dlg && dlg.focus();
 }
 
-const STORAGE_NS = 'baeder:last-values:v2';
-function loadCache(){ try{ return JSON.parse(localStorage.getItem(STORAGE_NS) || '{}'); }catch{ return {}; } }
-function saveCache(c){ try{ localStorage.setItem(STORAGE_NS, JSON.stringify(c)); }catch{} }
-function writeStore(poolKey, tileKey, v, at){ const c=loadCache(); c[poolKey]=c[poolKey]||{}; c[poolKey][tileKey]={v,at:at?new Date(at).toISOString():null}; saveCache(c); }
-function readStore(poolKey, tileKey){ const c=loadCache(); return (c[poolKey] && c[poolKey][tileKey]) || null; }
-
-function displayName(key, name){
-  if(key==='kids') return 'Kinder&shy;plansch&shy;becken';
-  if(key==='swim') return 'Schwimmer&shy;becken';
-  if(key==='out')  return 'Außen&shy;temperatur';
-  return name;
-}
-function iconFor(key){ switch(key){ case 'swim':return '🏊'; case 'kids':return '👶'; case 'out':return '🌡️'; case 'uv':return '☀️'; default:return '•'; } }
-function labelHTML(t){
-  const name = displayName(t.key, t.name); const icon = iconFor(t.key);
-  if(t.key==='uv'){ return `<span class="icon block" aria-hidden="true">${icon}</span><span class="text">${name}</span>`; }
-  return `<span class="icon" aria-hidden="true">${icon}</span> ${name}`;
+function closeHistoryModal() {
+  historyModal.setAttribute("aria-hidden", "true");
 }
 
-function buildGrid(poolKey){
-  const grid = el(`#${poolKey}-grid`);
-  const tiles = CONFIG[poolKey].tiles;
-  grid.innerHTML = tiles.map(t => `
-    <article class="thumb" id="${poolKey}-tile-${t.key}">
-      <div class="label">${labelHTML(t)}</div>
-      <div class="value" data-click="val"><span id="${poolKey}-val-${t.key}"></span><span class="unit">${t.unit||''}</span></div>
-      <div class="meta" id="${poolKey}-meta-${t.key}"></div>
-    </article>
-  `).join('');
-}
-
-async function fetchLatest(defaultChannelId, defaultReadKey, tile){
-  const channelId = tile.channelId ?? defaultChannelId;
-  const readKey   = tile.readApiKey ?? defaultReadKey;
-  const field     = tile.field ?? null;
-  if(field == null) return { value:null, at:null, skipped:true };
-  const url = new URL(`https://api.thingspeak.com/channels/${channelId}/fields/${field}.json`);
-  url.searchParams.set('results', '120');
-  if(readKey) url.searchParams.set('api_key', readKey);
-  const res = await fetch(url.toString());
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  const data = await res.json();
-  const feeds = data.feeds || [];
-  const key = `field${field}`;
-  for(let i=feeds.length-1;i>=0;i--){
-    const v = parseValue(feeds[i][key]);
-    if(!Number.isNaN(v)) return { value:v, at:feeds[i].created_at };
-  }
-  return { value:null, at:null };
-}
-
-async function updatePool(poolKey){
-  const cfg = CONFIG[poolKey];
-  buildGrid(poolKey);
-  const results = await Promise.all(cfg.tiles.map(async t => {
-    try{ const r=await fetchLatest(cfg.channelId,cfg.readApiKey,t); return {t,...r}; }
-    catch{ return {t,value:null,at:null,err:true}; }
-  }));
-  for(const r of results){
-    const tileEl = document.getElementById(`${poolKey}-tile-${r.t.key}`);
-    const vEl = document.getElementById(`${poolKey}-val-${r.t.key}`);
-    let val = (r.value != null && !Number.isNaN(r.value)) ? r.value : null;
-    if(val == null){ const stored = readStore(poolKey, r.t.key); if(stored && stored.v != null && !Number.isNaN(stored.v)) val = stored.v; }
-    else{ writeStore(poolKey, r.t.key, val, r.at || null); }
-    vEl.textContent = (val==null)?'': nf1.format(val);
-  }
-}
-
-// UV modal open/close
-function openUvModal(){ const m=document.getElementById('uv-modal'); if(!m) return; m.classList.add('show'); const d=m.querySelector('.modal-dialog'); if(d) d.focus(); }
-function closeUvModal(){ const m=document.getElementById('uv-modal'); if(!m) return; m.classList.remove('show'); }
-document.addEventListener('click',(e)=>{ if(e.target.closest('[data-close="uv"]')){ closeUvModal(); return; } const a=e.target.closest('article.thumb'); if(a && /-tile-uv$/.test(a.id)){ openUvModal(); }});
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeUvModal(); });
-
-// Bootstrap from latest.json for first-time visitors
-async function primeFromGlobal(){
-  try{
-    const res = await fetch('latest.json', { cache:'no-store' }); if(!res.ok) return;
-    const snapshot = await res.json();
-    try{ buildGrid('filple'); }catch{}
-    try{ buildGrid('natur'); }catch{}
-    const apply = (poolKey, tileKey, rec)=>{
-      if(!rec || rec.v==null || isNaN(rec.v)) return;
-      writeStore(poolKey, tileKey, rec.v, rec.at||null);
-      const vEl = document.getElementById(`${poolKey}-val-${tileKey}`);
-      if(vEl) vEl.textContent = nf1.format(rec.v);
-    };
-    if(snapshot.filple){ for(const k of Object.keys(snapshot.filple)){ apply('filple',k,snapshot.filple[k]); } }
-    if(snapshot.natur){ for(const k of Object.keys(snapshot.natur)){ apply('natur',k,snapshot.natur[k]); } }
-  }catch{}
-}
-
-function refreshAll(){ updatePool('filple'); updatePool('natur'); }
-window.addEventListener('DOMContentLoaded', async ()=>{ await primeFromGlobal(); refreshAll(); setInterval(refreshAll, 5*60*1000); });
-// Open history when clicking on numeric value area
-document.addEventListener('click', (e)=>{
-  const val = e.target.closest('.value[data-click="val"]'); if(!val) return;
-  const art = val.closest('article.thumb'); if(!art) return;
-  e.stopPropagation(); // prevent UV image modal on UV tile
-  const id = art.id; // format: {pool}-tile-{key}
-  const m = id.match(/^(filple|natur)-tile-(\w+)$/);
-  if(m){ showHistory(m[1], m[2]); }
+document.querySelectorAll('[data-close="hist"]').forEach(el => {
+  el.addEventListener("click", closeHistoryModal);
 });
-// Close history modal
-document.addEventListener('click', (e)=>{ if(e.target.closest('[data-close="hist"]')){ closeHistoryModal(); } });
-document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeHistoryModal(); });
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && historyModal.getAttribute("aria-hidden") === "false") {
+    closeHistoryModal();
+  }
+});
+
+/** =========================
+ *  UI – RENDER
+ *  ========================= */
+function createCard({ key, label, value, unit, type }) {
+  const card = document.createElement("div");
+  card.className = "thumb-card";
+  card.setAttribute("data-key", key);
+  card.setAttribute("data-type", type);
+  card.setAttribute("data-label", label);
+
+  card.innerHTML = `
+    <div class="thumb-top">
+      <span class="thumb-label">${label}</span>
+    </div>
+    <div class="thumb-value">${formatValue(value, unit)}</div>
+    <div class="thumb-meta">${type === "uv" ? "UV-Index" : "Temperatur"}</div>
+  `;
+
+  return card;
+}
+
+function latestValue(series) {
+  if (!series || !series.length) return null;
+  return series[series.length - 1].value;
+}
+
+function attachGridClick(gridEl) {
+  if (!gridEl || gridEl.__clickBound) return;
+  gridEl.addEventListener("click", (ev) => {
+    const card = ev.target.closest("[data-key]");
+    if (!card) return;
+    const key   = card.getAttribute("data-key");
+    const type  = card.getAttribute("data-type");
+    const label = card.getAttribute("data-label") || key;
+    const unit  = type === "uv" ? "" : "°C";
+
+    const series = window.SENSOR_SERIES[key];
+    const mode   = (type === "uv" && USE_UV_MAX_FOR_DAILY) ? "max" : "avg";
+    const daily  = computeDaily(series, DAYS_HISTORY, mode);
+
+    openHistoryModal({
+      title: `${label} – letzte ${DAYS_HISTORY} Tage (${mode === "avg" ? "Durchschnitt" : "Maximum"})`,
+      items: daily,
+      unit
+    });
+  });
+  gridEl.__clickBound = true;
+}
+
+function renderPool(poolId, gridEl, updatedEl, data) {
+  if (!gridEl || !updatedEl) return;
+
+  // Zeitreihen in globalen Speicher und Kacheln erstellen
+  gridEl.innerHTML = "";
+  data.tiles.forEach(t => {
+    window.SENSOR_SERIES[t.key] = t.series;
+    const val = latestValue(t.series);
+    const card = createCard({
+      key: t.key,
+      label: t.label,
+      value: val,
+      unit: t.unit || (t.type === "temp" ? "°C" : ""),
+      type: t.type
+    });
+    gridEl.appendChild(card);
+  });
+
+  // Updated
+  updatedEl.textContent = formatUpdated(data.updatedAt);
+
+  // Click-Handler (einmalig)
+  attachGridClick(gridEl);
+}
+
+/** =========================
+ *  BOOTSTRAP
+ *  ========================= */
+async function init() {
+  try {
+    // Wenn du bereits Daten hast, kannst du sie in window.INIT_DATA_* legen.
+    // Format wie DataProvider.fetch zurückgibt.
+    const filpleData = window.INIT_DATA_FILPLE || await DataProvider.fetch("filple");
+    const naturData  = window.INIT_DATA_NATUR  || await DataProvider.fetch("natur");
+
+    renderPool("filple", elFilpleGrid, elFilpleUpd, filpleData);
+    renderPool("natur",  elNaturGrid,  elNaturUpd,  naturData);
+  } catch (err) {
+    console.error("Init-Fehler:", err);
+    [elFilpleUpd, elNaturUpd].forEach(el => {
+      if (el) el.textContent = "Fehler beim Laden der Daten.";
+    });
+  }
+}
+
+document.addEventListener("DOMContentLoaded", init);
