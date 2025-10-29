@@ -1,18 +1,14 @@
-/* app.js – Komplett
+/* app.js – Ohne Vergangenheits-Funktionalität
    Oberderdingen – Alles zum Baden!
    ------------------------------------------------------------
-   Features
    - Rendert Kacheln für Temperaturen & UV (FilpleBad, NaturErlebnisBad)
-   - Klick auf Kachel => Modal zeigt Tagesdurchschnitte (letzte 7 Tage)
-   - "Zuletzt aktualisiert" pro Bad
-   - Einfach auf echte API-Daten umstellbar (siehe DataProvider.fetch)
+   - Setzt "Zuletzt aktualisiert"
+   - Keine Historien-/Vergangenheits-Logik und keine History-Modals
    ------------------------------------------------------------ */
 
 /** =========================
  *  KONFIG
  *  ========================= */
-const DAYS_HISTORY = 7;              // 7 / 14 / 28 – beliebig anpassen
-const USE_UV_MAX_FOR_DAILY = false;  // true => UV Tages-Max statt Durchschnitt
 const LOCALE = "de-DE";
 
 /** =========================
@@ -23,35 +19,30 @@ const elNaturGrid  = document.getElementById("natur-grid");
 const elFilpleUpd  = document.getElementById("filple-updated");
 const elNaturUpd   = document.getElementById("natur-updated");
 
-const historyModal = document.getElementById("history-modal");
-const historyTitle = document.getElementById("history-title");
-const historyList  = document.getElementById("history-list");
-
 /** =========================
  *  SENSOR-SPEICHER
  *  =========================
  * Key => Zeitreihe [{ts, value}]
- * Keys werden an Kacheln als data-key referenziert.
+ * (nur für die Anzeige des aktuellen Werts genutzt)
  */
 window.SENSOR_SERIES = window.SENSOR_SERIES || {};
 
 /** =========================
- *  DATA PROVIDER
+ *  DATA PROVIDER (Demo)
  *  =========================
  * Stelle hier auf deine echte API um (fetch/axios etc.).
  */
 const DataProvider = {
-  // Beispiel: auf echte Endpunkte umstellen
+  // Beispiel für echte Daten:
   // async fetch(pool) {
   //   const res = await fetch(`/api/${pool}`);
   //   return await res.json();
   // },
 
-  // Demo-Daten: deterministisch generiert, damit die App out-of-the-box funktioniert
+  // Demo-Daten: generiert lauffähige Daten ohne Backend
   async fetch(pool) {
-    // generiert Zeitreihen der letzten 30 Tage im 2h-Raster
     const now = new Date();
-    const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const start = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000); // nur wenige Tage zur Demo
     const series = (base, swing) => {
       const out = [];
       for (let t = new Date(start); t <= now; t = new Date(t.getTime() + 2*60*60*1000)) {
@@ -62,8 +53,7 @@ const DataProvider = {
       return out;
     };
 
-    // Pools: frei benennbar – wichtig sind die Keys
-    const data = {
+    return {
       updatedAt: now.toISOString(),
       tiles: [
         // Temperaturen
@@ -81,7 +71,7 @@ const DataProvider = {
           unit: "°C",
           series: series(pool === "filple" ? 26.0 : 22.6, 1.0)
         },
-        // Optionale Lufttemperatur-Kachel
+        // optionale Lufttemperatur
         {
           key: `${pool}:luft:temp`,
           label: pool === "filple" ? "Filple – Luft" : "Natur – Luft",
@@ -89,7 +79,7 @@ const DataProvider = {
           unit: "°C",
           series: series(19.5, 4.5)
         },
-        // UV-Index (zwei Quellen/Positionen)
+        // UV-Index (zwei Positionen)
         {
           key: `${pool}:uv:außen`,
           label: pool === "filple" ? "Filple – UV außen" : "Natur – UV außen",
@@ -106,58 +96,12 @@ const DataProvider = {
         },
       ]
     };
-
-    return data;
   }
 };
 
 /** =========================
  *  UTIL
  *  ========================= */
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function toLocalISODate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function groupByLocalDay(points) {
-  const byDay = new Map();
-  for (const p of points) {
-    const d = new Date(p.ts);
-    const key = toLocalISODate(d);
-    if (!byDay.has(key)) byDay.set(key, []);
-    byDay.get(key).push(p.value);
-  }
-  return byDay;
-}
-
-/**
- * Tagesaggregation für letzte N Tage.
- * mode: "avg" | "max"
- */
-function computeDaily(series, daysBack = 7, mode = "avg") {
-  if (!Array.isArray(series)) return [];
-  const now = new Date();
-  const start = new Date(now.getTime() - (daysBack - 1) * DAY_MS);
-  start.setHours(0,0,0,0);
-
-  const filtered = series.filter(p => new Date(p.ts) >= start);
-  const byDay = groupByLocalDay(filtered);
-  const keys = [...byDay.keys()].sort((a, b) => b.localeCompare(a));
-
-  const agg = (arr) => {
-    if (!arr || !arr.length) return null;
-    if (mode === "max") return Math.max(...arr);
-    const s = arr.reduce((x, y) => x + y, 0);
-    return s / arr.length;
-  };
-
-  return keys.map(k => ({ date: k, value: agg(byDay.get(k)) }));
-}
-
 function formatValue(val, unit) {
   if (val == null || Number.isNaN(val)) return "–";
   const digits = unit === "°C" ? 1 : 2;
@@ -171,48 +115,6 @@ function formatUpdated(ts) {
   const time = d.toLocaleTimeString(LOCALE, { hour:"2-digit", minute:"2-digit" });
   return `Zuletzt aktualisiert: ${date}, ${time} Uhr`;
 }
-
-/** =========================
- *  MODAL
- *  ========================= */
-function openHistoryModal({ title, items, unit }) {
-  historyTitle.textContent = title || "Historie";
-  historyList.innerHTML = "";
-
-  if (!items.length) {
-    const li = document.createElement("li");
-    li.textContent = "Keine Messwerte im gewählten Zeitraum.";
-    historyList.appendChild(li);
-  } else {
-    for (const entry of items) {
-      const d = new Date(entry.date + "T00:00:00");
-      const dateLabel = d.toLocaleDateString(LOCALE, {
-        weekday: "short", day: "2-digit", month: "2-digit"
-      });
-      const li = document.createElement("li");
-      li.textContent = `${dateLabel}: ${formatValue(entry.value, unit)}`;
-      historyList.appendChild(li);
-    }
-  }
-
-  historyModal.setAttribute("aria-hidden", "false");
-  const dlg = historyModal.querySelector(".modal-dialog");
-  dlg && dlg.focus();
-}
-
-function closeHistoryModal() {
-  historyModal.setAttribute("aria-hidden", "true");
-}
-
-document.querySelectorAll('[data-close="hist"]').forEach(el => {
-  el.addEventListener("click", closeHistoryModal);
-});
-
-document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape" && historyModal.getAttribute("aria-hidden") === "false") {
-    closeHistoryModal();
-  }
-});
 
 /** =========================
  *  UI – RENDER
@@ -232,6 +134,7 @@ function createCard({ key, label, value, unit, type }) {
     <div class="thumb-meta">${type === "uv" ? "UV-Index" : "Temperatur"}</div>
   `;
 
+  // Kein Klick-Handler für Historie mehr!
   return card;
 }
 
@@ -240,36 +143,12 @@ function latestValue(series) {
   return series[series.length - 1].value;
 }
 
-function attachGridClick(gridEl) {
-  if (!gridEl || gridEl.__clickBound) return;
-  gridEl.addEventListener("click", (ev) => {
-    const card = ev.target.closest("[data-key]");
-    if (!card) return;
-    const key   = card.getAttribute("data-key");
-    const type  = card.getAttribute("data-type");
-    const label = card.getAttribute("data-label") || key;
-    const unit  = type === "uv" ? "" : "°C";
-
-    const series = window.SENSOR_SERIES[key];
-    const mode   = (type === "uv" && USE_UV_MAX_FOR_DAILY) ? "max" : "avg";
-    const daily  = computeDaily(series, DAYS_HISTORY, mode);
-
-    openHistoryModal({
-      title: `${label} – letzte ${DAYS_HISTORY} Tage (${mode === "avg" ? "Durchschnitt" : "Maximum"})`,
-      items: daily,
-      unit
-    });
-  });
-  gridEl.__clickBound = true;
-}
-
 function renderPool(poolId, gridEl, updatedEl, data) {
   if (!gridEl || !updatedEl) return;
 
-  // Zeitreihen in globalen Speicher und Kacheln erstellen
   gridEl.innerHTML = "";
   data.tiles.forEach(t => {
-    window.SENSOR_SERIES[t.key] = t.series;
+    window.SENSOR_SERIES[t.key] = t.series; // optional weiterhin abgelegt
     const val = latestValue(t.series);
     const card = createCard({
       key: t.key,
@@ -281,11 +160,7 @@ function renderPool(poolId, gridEl, updatedEl, data) {
     gridEl.appendChild(card);
   });
 
-  // Updated
   updatedEl.textContent = formatUpdated(data.updatedAt);
-
-  // Click-Handler (einmalig)
-  attachGridClick(gridEl);
 }
 
 /** =========================
@@ -293,8 +168,6 @@ function renderPool(poolId, gridEl, updatedEl, data) {
  *  ========================= */
 async function init() {
   try {
-    // Wenn du bereits Daten hast, kannst du sie in window.INIT_DATA_* legen.
-    // Format wie DataProvider.fetch zurückgibt.
     const filpleData = window.INIT_DATA_FILPLE || await DataProvider.fetch("filple");
     const naturData  = window.INIT_DATA_NATUR  || await DataProvider.fetch("natur");
 
