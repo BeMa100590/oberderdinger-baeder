@@ -1,90 +1,68 @@
-/* app.js – nur Anzeige (Temperaturen & UV), kein History, design-schonend
-   Verwendet NUR die vorhandenen Container:
-   - #filple-grid, #natur-grid
-   - #filple-updated, #natur-updated
-*/
+// app.js — Minimal: Temperaturen & UV sicher anzeigen (keine Historie)
 
 const LOCALE = "de-DE";
 
 // ---- DOM ----
-const elFilpleGrid = document.getElementById("filple-grid");
-const elNaturGrid  = document.getElementById("natur-grid");
-const elFilpleUpd  = document.getElementById("filple-updated");
-const elNaturUpd   = document.getElementById("natur-updated");
+const filpleGrid = document.getElementById("filple-grid");
+const naturGrid  = document.getElementById("natur-grid");
+const filpleUpd  = document.getElementById("filple-updated");
+const naturUpd   = document.getElementById("natur-updated");
 
-// ---- Helfer ----
-function formatValue(val, unit) {
-  if (val == null || Number.isNaN(val)) return "–";
-  const digits = unit === "°C" ? 1 : 2;
-  return `${val.toFixed(digits)}${unit ? " " + unit : ""}`;
+// ---- Helpers ----
+function fmtVal(v, unit) {
+  if (v == null || Number.isNaN(v)) return "–";
+  const digits = unit === "°C" ? 1 : 1;
+  return `${v.toFixed(digits)}${unit ? " " + unit : ""}`;
 }
-
-function formatUpdated(ts) {
-  if (!ts) return "";
+function fmtUpdated(ts) {
   const d = new Date(ts);
-  const date = d.toLocaleDateString(LOCALE, { day:"2-digit", month:"2-digit", year:"numeric" });
-  const time = d.toLocaleTimeString(LOCALE, { hour:"2-digit", minute:"2-digit" });
-  return `Zuletzt aktualisiert: ${date}, ${time} Uhr`;
+  return `Zuletzt aktualisiert: ${d.toLocaleDateString(LOCALE, {day:"2-digit",month:"2-digit",year:"numeric"})}, ${d.toLocaleTimeString(LOCALE,{hour:"2-digit",minute:"2-digit"})} Uhr`;
 }
 
-// ---- DataProvider ----
-// Wenn du echte Daten hast, ersetze die Demo-Funktion unten durch deinen fetch().
-// Erwartetes Rückgabeformat pro Pool:
-// {
-//   updatedAt: "2025-10-29T19:51:00Z",
-//   tiles: [
-//     { key:"filple:becken1:temp", label:"Wasser (Schwimmer)", type:"temp", unit:"°C", value:23.6 },
-//     { key:"filple:becken2:temp", label:"Wasser (Nichtschw.)", type:"temp", unit:"°C", value:26.1 },
-//     { key:"filple:luft:temp",    label:"Luft",               type:"temp", unit:"°C", value:19.8 },
-//     { key:"filple:uv:außen",     label:"UV außen",           type:"uv",   unit:"",   value:3.2 },
-//     { key:"filple:uv:innen",     label:"UV innen",           type:"uv",   unit:"",   value:1.1 },
-//   ]
-// }
-const DataProvider = {
-  async fetch(pool) {
-    // ===== DEMO-DATEN (ersetzbar) =====
-    const now = new Date();
-    const rng = (min, max) => min + Math.random() * (max - min);
+// ---- Datenquelle (ersetze durch echte Fetches, wenn vorhanden) ----
+async function fetchPoolData(pool) {
+  // Wenn du serverseitig Daten injizierst, nutze sie:
+  if (pool === "filple" && window.INIT_DATA_FILPLE) return window.INIT_DATA_FILPLE;
+  if (pool === "natur"  && window.INIT_DATA_NATUR)  return window.INIT_DATA_NATUR;
 
-    const demo = (pool === "filple")
-      ? {
-          updatedAt: now.toISOString(),
-          tiles: [
-            { key:`${pool}:becken1:temp`, label:"Wasser (Schwimmer)",   type:"temp", unit:"°C", value:rng(22.5,24.5) },
-            { key:`${pool}:becken2:temp`, label:"Wasser (Nichtschw.)",  type:"temp", unit:"°C", value:rng(25.0,27.0) },
-            { key:`${pool}:luft:temp`,    label:"Luft",                 type:"temp", unit:"°C", value:rng(17.0,22.0) },
-            { key:`${pool}:uv:außen`,     label:"UV außen",             type:"uv",   unit:"",   value:Math.max(0, Math.min(11, rng(1.5,5.5))) },
-            { key:`${pool}:uv:innen`,     label:"UV innen",             type:"uv",   unit:"",   value:Math.max(0, Math.min(6, rng(0.5,2.0))) },
-          ]
-        }
-      : {
-          updatedAt: now.toISOString(),
-          tiles: [
-            { key:`${pool}:becken1:temp`, label:"Wasser (Schwimmer)",   type:"temp", unit:"°C", value:rng(21.0,23.0) },
-            { key:`${pool}:becken2:temp`, label:"Wasser (Nichtschw.)",  type:"temp", unit:"°C", value:rng(22.0,24.0) },
-            { key:`${pool}:luft:temp`,    label:"Luft",                 type:"temp", unit:"°C", value:rng(17.0,22.0) },
-            { key:`${pool}:uv:außen`,     label:"UV außen",             type:"uv",   unit:"",   value:Math.max(0, Math.min(11, rng(1.0,5.0))) },
-            { key:`${pool}:uv:innen`,     label:"UV innen",             type:"uv",   unit:"",   value:Math.max(0, Math.min(6, rng(0.3,1.6))) },
-          ]
-        };
-
-    // Wenn du serverseitig bereits Daten reinreichst, nutze diese:
-    // window.INIT_DATA_FILPLE / window.INIT_DATA_NATUR im selben Format.
-    if (pool === "filple" && window.INIT_DATA_FILPLE) return window.INIT_DATA_FILPLE;
-    if (pool === "natur"  && window.INIT_DATA_NATUR)  return window.INIT_DATA_NATUR;
-
-    return demo;
+  // DEMO: fixe Werte, damit Temperaturen garantiert erscheinen
+  const nowISO = new Date().toISOString();
+  if (pool === "filple") {
+    return {
+      updatedAt: nowISO,
+      tiles: [
+        { key:`${pool}:wasser:schwimmer`,  label:"Wasser (Schwimmer)",    type:"temp", unit:"°C", value:23.6 },
+        { key:`${pool}:wasser:nichtschw`,  label:"Wasser (Nichtschw.)",   type:"temp", unit:"°C", value:26.2 },
+        { key:`${pool}:luft:aktuell`,      label:"Luft",                  type:"temp", unit:"°C", value:19.9 },
+        { key:`${pool}:uv:außen`,          label:"UV außen",              type:"uv",   unit:"",   value:3.2  },
+        { key:`${pool}:uv:innen`,          label:"UV innen",              type:"uv",   unit:"",   value:1.1  },
+      ]
+    };
+  } else {
+    return {
+      updatedAt: nowISO,
+      tiles: [
+        { key:`${pool}:wasser:schwimmer`,  label:"Wasser (Schwimmer)",    type:"temp", unit:"°C", value:22.4 },
+        { key:`${pool}:wasser:nichtschw`,  label:"Wasser (Nichtschw.)",   type:"temp", unit:"°C", value:23.5 },
+        { key:`${pool}:luft:aktuell`,      label:"Luft",                  type:"temp", unit:"°C", value:18.7 },
+        { key:`${pool}:uv:außen`,          label:"UV außen",              type:"uv",   unit:"",   value:2.7  },
+        { key:`${pool}:uv:innen`,          label:"UV innen",              type:"uv",   unit:"",   value:0.9  },
+      ]
+    };
   }
-};
+}
 
 // ---- Rendering ----
-// IMPORTANT: Wir erzeugen nur sehr schlichtes Markup, damit dein CSS greift.
-// Jede Kachel ist ein <div class="thumb"> mit zwei Zeilen: Titel + Wert.
+// Wir erzeugen extrem simples Markup, das typischerweise mit bestehenden Styles klappt:
+// <div class="thumb" data-key ...>
+//   <div class="thumb-title">Label</div>
+//   <div class="thumb-value">23.6 °C</div>
+// </div>
 function renderTile(t) {
-  const el = document.createElement("div");
-  el.className = "thumb";
-  el.setAttribute("data-key", t.key);
-  el.setAttribute("data-type", t.type);
+  const wrap = document.createElement("div");
+  wrap.className = "thumb";
+  wrap.setAttribute("data-key", t.key);
+  wrap.setAttribute("data-type", t.type);
 
   const title = document.createElement("div");
   title.className = "thumb-title";
@@ -92,36 +70,49 @@ function renderTile(t) {
 
   const value = document.createElement("div");
   value.className = "thumb-value";
-  value.textContent = formatValue(t.value, t.unit || (t.type === "temp" ? "°C" : ""));
+  value.textContent = fmtVal(t.value, t.unit || (t.type === "temp" ? "°C" : ""));
 
-  el.appendChild(title);
-  el.appendChild(value);
-  return el;
+  wrap.appendChild(title);
+  wrap.appendChild(value);
+  return wrap;
 }
 
 function renderPool(gridEl, updatedEl, data) {
   if (!gridEl || !updatedEl) return;
-  gridEl.innerHTML = ""; // nur Grid-Inhalt, restliches Layout bleibt unberührt
 
-  data.tiles.forEach(t => {
-    const tile = renderTile(t);
-    gridEl.appendChild(tile);
+  // Wichtig: zuerst leeren, dann nur unsere Kacheln einsetzen
+  gridEl.innerHTML = "";
+
+  // Reihenfolge: Wasser (Schwimmer), Wasser (Nichtschw.), Luft, UV außen, UV innen
+  const order = ["wasser:schwimmer","wasser:nichtschw","luft:aktuell","uv:außen","uv:innen"];
+
+  const tilesSorted = data.tiles.slice().sort((a,b) => {
+    const ai = order.findIndex(k => a.key.includes(k));
+    const bi = order.findIndex(k => b.key.includes(k));
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   });
 
-  updatedEl.textContent = formatUpdated(data.updatedAt);
+  tilesSorted.forEach(t => gridEl.appendChild(renderTile(t)));
+
+  updatedEl.textContent = fmtUpdated(data.updatedAt);
 }
 
-// ---- Boot ----
+// ---- Init ----
 async function init() {
   try {
-    const filple = await DataProvider.fetch("filple");
-    const natur  = await DataProvider.fetch("natur");
-    renderPool(elFilpleGrid, elFilpleUpd, filple);
-    renderPool(elNaturGrid,  elNaturUpd,  natur);
-  } catch (e) {
-    console.error(e);
-    if (elFilpleUpd) elFilpleUpd.textContent = "Fehler beim Laden der Daten.";
-    if (elNaturUpd)  elNaturUpd.textContent  = "Fehler beim Laden der Daten.";
+    const filple = await fetchPoolData("filple");
+    const natur  = await fetchPoolData("natur");
+
+    // Log, falls irgendwas fehlt
+    console.log("[filple]", filple);
+    console.log("[natur ]", natur);
+
+    renderPool(filpleGrid, filpleUpd, filple);
+    renderPool(naturGrid,  naturUpd,  natur);
+  } catch (err) {
+    console.error("Fehler:", err);
+    if (filpleUpd) filpleUpd.textContent = "Fehler beim Laden.";
+    if (naturUpd)  naturUpd.textContent  = "Fehler beim Laden.";
   }
 }
 
