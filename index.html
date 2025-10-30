@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Wasser- & Außentemperaturen – Oberderdinger Bäder</title>
+  <title>Oberderdinger Bäder - Alles zum Baden!</title>
   <meta name="description" content="Live-Anzeige der Wasser- und Außentemperaturen für das Filplebad Oberderdingen und das Naturerlebnisbad Flehingen." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,7 +12,7 @@
 </head>
 <body>
   <header class="site-header">
-    <h1>Oberderdinger Bäder</h1>
+    <h1>Oberderdinger Bäder - Alles zum Baden!</h1>
     <p class="tagline">Live: Wasser- &amp; Außentemperaturen</p>
   </header>
 
@@ -20,7 +20,7 @@
     <section class="grid">
       <!-- Filplebad -->
       <article class="card">
-        <img src="assets/filplebad.jpg" alt="Filplebad Oberderdingen" class="hero" />
+        <img src="assets/filplebad.jpg" alt="Filplebad Oberderdingen" class="hero hero-filple" />
         <div class="card-body">
           <h2>Filplebad Oberderdingen</h2>
           <div class="values">
@@ -38,14 +38,14 @@
             </div>
           </div>
           <div class="meta">
-            <span id="filple_updated">Aktualisiere…</span>
+            <span id="filple_updated">Lade Daten…</span>
           </div>
         </div>
       </article>
 
       <!-- Naturerlebnisbad -->
       <article class="card">
-        <img src="assets/Naturerlebnisbad.jpg" alt="Naturerlebnisbad Flehingen" class="hero" />
+        <img src="assets/Naturerlebnisbad.jpg" alt="Naturerlebnisbad Flehingen" class="hero hero-natur" />
         <div class="card-body">
           <h2>Naturerlebnisbad Flehingen</h2>
           <div class="values">
@@ -59,30 +59,15 @@
             </div>
           </div>
           <div class="meta">
-            <span id="natur_updated">Aktualisiere…</span>
+            <span id="natur_updated">Lade Daten…</span>
           </div>
         </div>
       </article>
     </section>
-
-    <section class="infos">
-      <details>
-        <summary>Hinweise &amp; Datenquellen</summary>
-        <ul>
-          <li>Daten via ThingSpeak (jeweils letzter Messwert).</li>
-          <li>Automatische Aktualisierung alle 5&nbsp;Minuten oder per <button class="linklike" id="refreshBtn">Neu laden</button>.</li>
-          <li>Kontakt/Impressum bitte in <code>impressum.html</code> ergänzen.</li>
-        </ul>
-      </details>
-    </section>
   </main>
 
   <footer class="site-footer">
-    <div>&copy; <span id="year"></span> Oberderdingen Bäder</div>
-    <nav>
-      <a href="impressum.html">Impressum</a>
-      <a href="README.md">README</a>
-    </nav>
+    <div>&copy; <span id="year"></span> Oberderdinger Bäder</div>
   </footer>
 
   <script src="script.js"></script>
