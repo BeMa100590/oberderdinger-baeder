@@ -1,118 +1,63 @@
-/* app.js — Anzeige für Temperaturen & UV (ohne Historie)
-   Nutzt vorhandene Container:
-   - #filple-grid, #natur-grid
-   - #filple-updated, #natur-updated
-*/
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Oberderdingen - Alles zum Baden!</title>
+  <meta name="theme-color" content="#0a5b72" />
+  <link rel="stylesheet" href="style.css?v=9" />
+  <script defer src="app.js?v=9"></script>
+</head>
+<body>
+  <header class="header">
+    <h1>Oberderdingen - Alles zum Baden!</h1>
+  </header>
 
-const LOCALE = "de-DE";
+  <section class="pool" data-pool="filple" style="--hero-image: url('assets/hero-natur.jpg'); --accent:#7a8d4a;">
+    <div class="hero"></div>
+    <div class="content">
+      <div class="title-row">
+        <h2>FilpleBad Oberderdingen</h2>
+        <p class="updated" id="filple-updated"></p>
+      </div>
+      <div class="thumb-grid" id="filple-grid"></div>
+    </div>
+  </section>
 
-// DOM-Referenzen
-const filpleGrid = document.getElementById("filple-grid");
-const naturGrid  = document.getElementById("natur-grid");
-const filpleUpd  = document.getElementById("filple-updated");
-const naturUpd   = document.getElementById("natur-updated");
+  <section class="pool" data-pool="natur" style="--hero-image: url('assets/hero-filple.jpg'); --accent:#0a5b72;">
+    <div class="hero"></div>
+    <div class="content">
+      <div class="title-row">
+        <h2>NaturErlebnisBad Flehingen</h2>
+        <p class="updated" id="natur-updated"></p>
+      </div>
+      <div class="thumb-grid" id="natur-grid"></div>
+    </div>
+  </section>
 
-// Format-Helfer
-function fmtVal(v, unit) {
-  if (v == null || Number.isNaN(v)) return "–";
-  const digits = unit === "°C" ? 1 : 1;
-  return `${v.toFixed(digits)}${unit ? " " + unit : ""}`;
-}
-function fmtUpdated(ts) {
-  const d = new Date(ts);
-  const date = d.toLocaleDateString(LOCALE, { day:"2-digit", month:"2-digit", year:"numeric" });
-  const time = d.toLocaleTimeString(LOCALE, { hour:"2-digit", minute:"2-digit" });
-  return `Zuletzt aktualisiert: ${date}, ${time} Uhr`;
-}
+  <!-- UV-Index Modal -->
+  <div class="modal" id="uv-modal" aria-hidden="true" role="dialog" aria-label="UV-Index Erklärung">
+    <div class="modal-backdrop" data-close="uv"></div>
+    <div class="modal-dialog" role="document" tabindex="-1">
+      <button class="modal-close" data-close="uv" aria-label="Schließen">×</button>
+      <img src="assets/uvindex-modal.png" alt="UV-Index Erklärung" class="modal-img" />
+    </div>
+  </div>
 
-// ---- Datenquelle ----
-// Wenn du echte API-Daten hast, ersetze den DEMO-Teil unten durch fetch('/api/...').
-// Erwartetes Format (pro Pool):
-// { updatedAt: "ISO-TS",
-//   tiles: [ { label, type:"temp"|"uv", unit:"°C"|"" , value:Number }, ... ] }
-async function fetchPoolData(pool) {
-  // Falls du schon serverseitig Daten einbindest:
-  if (pool === "filple" && window.INIT_DATA_FILPLE) return window.INIT_DATA_FILPLE;
-  if (pool === "natur"  && window.INIT_DATA_NATUR)  return window.INIT_DATA_NATUR;
+  <!-- History (7 Tage Durchschnitt) Modal -->
+<div class="modal" id="history-modal" aria-hidden="true" role="dialog" aria-label="Letzte 7 Tage">
+  <div class="modal-backdrop" data-close="hist"></div>
+  <div class="modal-dialog" role="document" tabindex="-1">
+    <button class="modal-close" data-close="hist" aria-label="Schließen">×</button>
+    <div class="modal-body">
+      <h3 id="history-title" class="hist-title"></h3>
+      <ul id="history-list" class="hist-list"></ul>
+    </div>
+  </div>
+</div>
 
-  // ---- DEMO: feste Beispielwerte, damit sofort etwas sichtbar ist ----
-  const nowISO = new Date().toISOString();
-  if (pool === "filple") {
-    return {
-      updatedAt: nowISO,
-      tiles: [
-        { label:"Wasser (Schwimmer)",   type:"temp", unit:"°C", value:23.6 },
-        { label:"Wasser (Nichtschw.)",  type:"temp", unit:"°C", value:26.2 },
-        { label:"Luft",                 type:"temp", unit:"°C", value:19.9 },
-        { label:"UV außen",             type:"uv",   unit:"",   value:3.2  },
-        { label:"UV innen",             type:"uv",   unit:"",   value:1.1  },
-      ]
-    };
-  } else {
-    return {
-      updatedAt: nowISO,
-      tiles: [
-        { label:"Wasser (Schwimmer)",   type:"temp", unit:"°C", value:22.4 },
-        { label:"Wasser (Nichtschw.)",  type:"temp", unit:"°C", value:23.5 },
-        { label:"Luft",                 type:"temp", unit:"°C", value:18.7 },
-        { label:"UV außen",             type:"uv",   unit:"",   value:2.7  },
-        { label:"UV innen",             type:"uv",   unit:"",   value:0.9  },
-      ]
-    };
-  }
-}
-
-// Kachel (bewusst schlichtes Markup, damit dein CSS greift)
-function renderTile(t) {
-  // Struktur:
-  // <div class="thumb" data-type="temp|uv">
-  //   <div class="thumb-title">Label</div>
-  //   <div class="thumb-value">23.6 °C</div>
-  // </div>
-  const wrap = document.createElement("div");
-  wrap.className = "thumb";
-  wrap.setAttribute("data-type", t.type);
-
-  const title = document.createElement("div");
-  title.className = "thumb-title";
-  title.textContent = t.label;
-
-  const value = document.createElement("div");
-  value.className = "thumb-value";
-  value.textContent = fmtVal(t.value, t.unit || (t.type === "temp" ? "°C" : ""));
-
-  wrap.appendChild(title);
-  wrap.appendChild(value);
-  return wrap;
-}
-
-function renderPool(gridEl, updatedEl, data) {
-  if (!gridEl || !updatedEl) return;
-
-  // Reihenfolge: Wasser Schwimmer, Wasser Nichtschw., Luft, UV außen, UV innen
-  const order = ["Wasser (Schwimmer)", "Wasser (Nichtschw.)", "Luft", "UV außen", "UV innen"];
-  const tilesSorted = data.tiles.slice().sort(
-    (a, b) => order.indexOf(a.label) - order.indexOf(b.label)
-  );
-
-  gridEl.innerHTML = "";
-  tilesSorted.forEach(t => gridEl.appendChild(renderTile(t)));
-  updatedEl.textContent = fmtUpdated(data.updatedAt);
-}
-
-// Init
-async function init() {
-  try {
-    const filple = await fetchPoolData("filple");
-    const natur  = await fetchPoolData("natur");
-
-    renderPool(filpleGrid, filpleUpd, filple);
-    renderPool(naturGrid,  naturUpd,  natur);
-  } catch (err) {
-    console.error("Fehler beim Laden:", err);
-    if (filpleUpd) filpleUpd.textContent = "Fehler beim Laden.";
-    if (naturUpd)  naturUpd.textContent  = "Fehler beim Laden.";
-  }
-}
-
-document.addEventListener("DOMContentLoaded", init);
+  <footer class="footer">
+    <p>© 2025 Stadt Oberderdingen</p>
+  </footer>
+</body>
+</html>
