@@ -13,7 +13,8 @@ const CONFIG = {
     // field1: Außentemperatur Filplebad
     // field2: Außentemperatur Naturerlebnisbad
   },
-  refreshMs: 5 * 60 * 1000 // alle 5 Minuten
+  refreshMs: 5 * 60 * 1000, // alle 5 Minuten
+  results: 50               // so viele Einträge rückwärts prüfen
 };
 
 const qs = (sel) => document.querySelector(sel);
@@ -36,7 +37,9 @@ const STATE = {
   }
 };
 
-// Hilfsfunktionen ------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Hilfsfunktionen
+// ---------------------------------------------------------------------------
 
 function celsius(val){
   if (val === null || val === undefined || val === "") return null;
@@ -57,30 +60,44 @@ function fmt(d){
     : null;
 }
 
-async function fetchLatest(channelId, readKey){
-  const url = `https://api.thingspeak.com/channels/${channelId}/feeds.json?api_key=${readKey}&results=1`;
+// Holt MEHRERE Einträge von ThingSpeak
+async function fetchFeeds(channelId, readKey, results){
+  const url = `https://api.thingspeak.com/channels/${channelId}/feeds.json?api_key=${readKey}&results=${results}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("HTTP " + res.status);
   return await res.json();
 }
 
-// Ein Feld aktualisieren, aber bei ungültigen Werten den alten stehen lassen
-function updateField(elId, valueKey, tsKey, rawValue, ts){
+// Sucht in feeds von hinten den letzten gültigen Wert für ein Feld
+function findLastValid(feeds, fieldName){
+  for (let i = feeds.length - 1; i >= 0; i--) {
+    const f = feeds[i];
+    const formatted = celsius(f[fieldName]);
+    if (formatted !== null) {
+      return {
+        value: formatted,
+        ts: parseTs(f.created_at)
+      };
+    }
+  }
+  return { value: null, ts: null };
+}
+
+// Übernimmt einen gefundenen Wert ins DOM + STATE
+function applyValue(elId, valueKey, tsKey, info){
   const el = qs(elId);
   if (!el) return;
 
-  const formatted = celsius(rawValue);
-
-  if (formatted !== null) {
-    // neuer gültiger Wert -> speichern & anzeigen
-    STATE.values[valueKey] = formatted;
-    el.textContent = formatted;
-    if (ts) STATE.ts[tsKey] = ts;
+  if (info.value !== null) {
+    // neuer gültiger Wert
+    STATE.values[valueKey] = info.value;
+    STATE.ts[tsKey] = info.ts || STATE.ts[tsKey];
+    el.textContent = info.value;
   } else if (STATE.values[valueKey] !== null) {
-    // kein neuer Wert, aber wir haben einen alten -> alten anzeigen
+    // kein neuer, aber wir haben einen alten
     el.textContent = STATE.values[valueKey];
   } else {
-    // gar kein gültiger Wert bisher
+    // noch nie ein gültiger Wert
     el.textContent = "–";
   }
 }
@@ -102,44 +119,50 @@ function updateTimestampDisplays(){
   const filpleD = latestTs(['filple_schwimmer', 'filple_kinder', 'filple_aussen']);
   const naturD  = latestTs(['natur_wasser', 'natur_aussen']);
 
-  if (filpleD) filpleEl.textContent = `Letzte Messung: ${fmt(filpleD)}`;
-  else         filpleEl.textContent = 'Letzte Messung: –';
+  if (filpleEl) {
+    filpleEl.textContent = filpleD
+      ? `Letzte Messung: ${fmt(filpleD)}`
+      : 'Letzte Messung: –';
+  }
 
-  if (naturD)  naturEl.textContent  = `Letzte Messung: ${fmt(naturD)}`;
-  else         naturEl.textContent  = 'Letzte Messung: –';
+  if (naturEl) {
+    naturEl.textContent = naturD
+      ? `Letzte Messung: ${fmt(naturD)}`
+      : 'Letzte Messung: –';
+  }
 }
 
-// Haupt-Update ---------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Haupt-Update
+// ---------------------------------------------------------------------------
 
 async function updateAll(){
   try {
-    const [wasser, aussen] = await Promise.all([
-      fetchLatest(CONFIG.wasser.channelId, CONFIG.wasser.readKey),
-      fetchLatest(CONFIG.aussen.channelId, CONFIG.aussen.readKey)
+    const [wasserJson, aussenJson] = await Promise.all([
+      fetchFeeds(CONFIG.wasser.channelId, CONFIG.wasser.readKey, CONFIG.results),
+      fetchFeeds(CONFIG.aussen.channelId, CONFIG.aussen.readKey, CONFIG.results)
     ]);
 
+    const wFeeds = wasserJson.feeds || [];
+    const aFeeds = aussenJson.feeds || [];
+
     // WASSERKANAL -----------------------------------------------------------
-    const w = wasser.feeds?.[0] || {};
-    const wTs = parseTs(w.created_at);
+    const schwInfo  = findLastValid(wFeeds, "field1");
+    const kindInfo  = findLastValid(wFeeds, "field2");
+    const naturWInfo = findLastValid(wFeeds, "field3");
 
-    // Filplebad Wasser-Felder
-    updateField('#filple_schwimmer', 'filple_schwimmer', 'filple_schwimmer', w.field1, wTs);
-    updateField('#filple_kinder',    'filple_kinder',    'filple_kinder',    w.field2, wTs);
-
-    // Naturbad Wasser
-    updateField('#natur_wasser',     'natur_wasser',     'natur_wasser',     w.field3, wTs);
+    applyValue('#filple_schwimmer', 'filple_schwimmer', 'filple_schwimmer', schwInfo);
+    applyValue('#filple_kinder',    'filple_kinder',    'filple_kinder',    kindInfo);
+    applyValue('#natur_wasser',     'natur_wasser',     'natur_wasser',     naturWInfo);
 
     // AUSSENKANAL -----------------------------------------------------------
-    const a = aussen.feeds?.[0] || {};
-    const aTs = parseTs(a.created_at);
+    const filpleAInfo = findLastValid(aFeeds, "field1");
+    const naturAInfo  = findLastValid(aFeeds, "field2");
 
-    // Filplebad Außen
-    updateField('#filple_aussen', 'filple_aussen', 'filple_aussen', a.field1, aTs);
+    applyValue('#filple_aussen', 'filple_aussen', 'filple_aussen', filpleAInfo);
+    applyValue('#natur_aussen',  'natur_aussen',  'natur_aussen',  naturAInfo);
 
-    // Naturbad Außen
-    updateField('#natur_aussen',  'natur_aussen',  'natur_aussen',  a.field2, aTs);
-
-    // Zeitstempel je Bad
+    // Zeitstempel je Bad aktualisieren
     updateTimestampDisplays();
 
   } catch (err) {
@@ -157,7 +180,9 @@ async function updateAll(){
   }
 }
 
-// Start ----------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
   const yearEl = qs('#year');
