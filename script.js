@@ -13,13 +13,12 @@ const CONFIG = {
     // field1: Außentemperatur Filplebad
     // field2: Außentemperatur Naturerlebnisbad
   },
-  refreshMs: 5 * 60 * 1000, // alle 5 Minuten
-  results: 50               // so viele Einträge rückwärts prüfen
+  refreshMs: 5 * 60 * 1000 // alle 5 Minuten
 };
 
 const qs = (sel) => document.querySelector(sel);
 
-// Interner Zustand: letzte gültige Werte & Zeitstempel JE FELD
+// Letzte gültige Werte & Zeitstempel je Feld
 const STATE = {
   values: {
     filple_schwimmer: null,
@@ -37,64 +36,59 @@ const STATE = {
   }
 };
 
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------
 // Hilfsfunktionen
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------
 
-function celsius(val){
+function celsius(val) {
   if (val === null || val === undefined || val === "") return null;
   const n = Number(val);
   if (Number.isNaN(n)) return null;
   return `${n.toFixed(1)}°C`;
 }
 
-function parseTs(tsStr){
+function parseTs(tsStr) {
   if (!tsStr) return null;
   const d = new Date(tsStr); // ISO mit Z
   return isNaN(d.getTime()) ? null : d;
 }
 
-function fmt(d){
+function fmt(d) {
   return d
     ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
     : null;
 }
 
-// Holt MEHRERE Einträge von ThingSpeak
-async function fetchFeeds(channelId, readKey, results){
-  const url = `https://api.thingspeak.com/channels/${channelId}/feeds.json?api_key=${readKey}&results=${results}`;
+// Holt für EIN Feld den letzten Eintrag (unabhängig von anderen Feldern!)
+async function fetchFieldLast(channelId, readKey, fieldNo) {
+  const url =
+    `https://api.thingspeak.com/channels/${channelId}/fields/${fieldNo}/last.json` +
+    `?api_key=${readKey}`;
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("HTTP " + res.status);
-  return await res.json();
+
+  const data = await res.json();
+  const fieldName = `field${fieldNo}`;
+  return {
+    raw: data[fieldName] ?? null,
+    ts: parseTs(data.created_at)
+  };
 }
 
-// Sucht in feeds von hinten den letzten gültigen Wert für ein Feld
-function findLastValid(feeds, fieldName){
-  for (let i = feeds.length - 1; i >= 0; i--) {
-    const f = feeds[i];
-    const formatted = celsius(f[fieldName]);
-    if (formatted !== null) {
-      return {
-        value: formatted,
-        ts: parseTs(f.created_at)
-      };
-    }
-  }
-  return { value: null, ts: null };
-}
-
-// Übernimmt einen gefundenen Wert ins DOM + STATE
-function applyValue(elId, valueKey, tsKey, info){
+// Schreibt Wert ins DOM, lässt alten stehen wenn neuer ungültig ist
+function applyValue(elId, valueKey, tsKey, info) {
   const el = qs(elId);
   if (!el) return;
 
-  if (info.value !== null) {
-    // neuer gültiger Wert
-    STATE.values[valueKey] = info.value;
+  const formatted = celsius(info?.raw ?? null);
+
+  if (formatted !== null) {
+    // gültiger neuer Wert
+    STATE.values[valueKey] = formatted;
     STATE.ts[tsKey] = info.ts || STATE.ts[tsKey];
-    el.textContent = info.value;
+    el.textContent = formatted;
   } else if (STATE.values[valueKey] !== null) {
-    // kein neuer, aber wir haben einen alten
+    // kein neuer, aber alter vorhanden -> alten anzeigen
     el.textContent = STATE.values[valueKey];
   } else {
     // noch nie ein gültiger Wert
@@ -102,22 +96,22 @@ function applyValue(elId, valueKey, tsKey, info){
   }
 }
 
-// liefert das jüngste Datum aus mehreren TS-Feldern
-function latestTs(keys){
+// jüngsten Zeitstempel aus mehreren Feldern bestimmen
+function latestTs(keys) {
   const arr = keys
     .map(k => STATE.ts[k])
     .filter(Boolean)
-    .sort((a, b) => b - a); // neuestes zuerst
+    .sort((a, b) => b - a);
   return arr[0] || null;
 }
 
-// Zeitstempel-Anzeige pro Bad
-function updateTimestampDisplays(){
+// Zeitstempel je Bad setzen
+function updateTimestampDisplays() {
   const filpleEl = qs('#filple_updated');
-  const naturEl  = qs('#natur_updated');
+  const naturEl = qs('#natur_updated');
 
   const filpleD = latestTs(['filple_schwimmer', 'filple_kinder', 'filple_aussen']);
-  const naturD  = latestTs(['natur_wasser', 'natur_aussen']);
+  const naturD = latestTs(['natur_wasser', 'natur_aussen']);
 
   if (filpleEl) {
     filpleEl.textContent = filpleD
@@ -132,43 +126,41 @@ function updateTimestampDisplays(){
   }
 }
 
-// ---------------------------------------------------------------------------
-// Haupt-Update
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------
+// Haupt-Update: pro Feld der "last.json"-Wert
+// ---------------------------------------------------------
 
-async function updateAll(){
+async function updateAll() {
   try {
-    const [wasserJson, aussenJson] = await Promise.all([
-      fetchFeeds(CONFIG.wasser.channelId, CONFIG.wasser.readKey, CONFIG.results),
-      fetchFeeds(CONFIG.aussen.channelId, CONFIG.aussen.readKey, CONFIG.results)
+    // Alle Felder parallel holen
+    const [
+      filpleSchw,
+      filpleKind,
+      naturWasser,
+      filpleAussen,
+      naturAussen
+    ] = await Promise.all([
+      fetchFieldLast(CONFIG.wasser.channelId, CONFIG.wasser.readKey, 1),
+      fetchFieldLast(CONFIG.wasser.channelId, CONFIG.wasser.readKey, 2),
+      fetchFieldLast(CONFIG.wasser.channelId, CONFIG.wasser.readKey, 3),
+      fetchFieldLast(CONFIG.aussen.channelId, CONFIG.aussen.readKey, 1),
+      fetchFieldLast(CONFIG.aussen.channelId, CONFIG.aussen.readKey, 2),
     ]);
 
-    const wFeeds = wasserJson.feeds || [];
-    const aFeeds = aussenJson.feeds || [];
+    // Filplebad
+    applyValue('#filple_schwimmer', 'filple_schwimmer', 'filple_schwimmer', filpleSchw);
+    applyValue('#filple_kinder',    'filple_kinder',    'filple_kinder',    filpleKind);
+    applyValue('#filple_aussen',    'filple_aussen',    'filple_aussen',    filpleAussen);
 
-    // WASSERKANAL -----------------------------------------------------------
-    const schwInfo  = findLastValid(wFeeds, "field1");
-    const kindInfo  = findLastValid(wFeeds, "field2");
-    const naturWInfo = findLastValid(wFeeds, "field3");
+    // Naturerlebnisbad
+    applyValue('#natur_wasser', 'natur_wasser', 'natur_wasser', naturWasser);
+    applyValue('#natur_aussen', 'natur_aussen', 'natur_aussen', naturAussen);
 
-    applyValue('#filple_schwimmer', 'filple_schwimmer', 'filple_schwimmer', schwInfo);
-    applyValue('#filple_kinder',    'filple_kinder',    'filple_kinder',    kindInfo);
-    applyValue('#natur_wasser',     'natur_wasser',     'natur_wasser',     naturWInfo);
-
-    // AUSSENKANAL -----------------------------------------------------------
-    const filpleAInfo = findLastValid(aFeeds, "field1");
-    const naturAInfo  = findLastValid(aFeeds, "field2");
-
-    applyValue('#filple_aussen', 'filple_aussen', 'filple_aussen', filpleAInfo);
-    applyValue('#natur_aussen',  'natur_aussen',  'natur_aussen',  naturAInfo);
-
-    // Zeitstempel je Bad aktualisieren
     updateTimestampDisplays();
 
   } catch (err) {
     console.error(err);
-
-    // Bei Fehlern: Hinweis im Title, Werte NICHT löschen
+    // Bei Fehlern: Werte NICHT löschen, nur Hinweis
     ['#filple_updated', '#natur_updated'].forEach(id => {
       const el = qs(id);
       if (!el) return;
@@ -180,9 +172,9 @@ async function updateAll(){
   }
 }
 
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------
 // Start
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
   const yearEl = qs('#year');
